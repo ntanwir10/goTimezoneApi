@@ -1,4 +1,4 @@
-module goTimezoneApi
+module timeapi
 
 go 1.23.1
 

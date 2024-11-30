@@ -3,7 +3,6 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -11,60 +10,75 @@ import (
 	_ "github.com/go-sql-driver/mysql"
 )
 
-// Response struct for returning JSON
-type Response struct {
+type TimeResponse struct {
 	CurrentTime string `json:"current_time"`
+	Timezone    string `json:"timezone"`
 }
 
 var db *sql.DB
 
 func main() {
-	// Set up database connection
+	// Initialize database connection
 	var err error
-	dsn := "username:password@tcp(127.0.0.1:3306)/time_db" // Replace with your MySQL credentials and database
-	db, err = sql.Open("mysql", dsn)
+	db, err = sql.Open("mysql", "root:admin@tcp(localhost:3306)/timedb")
 	if err != nil {
-		log.Fatalf("Error opening database: %v", err)
+		log.Fatal(err)
 	}
 	defer db.Close()
 
-	// Verify the database connection
-	if err = db.Ping(); err != nil {
-		log.Fatalf("Error connecting to the database: %v", err)
+	// Test database connection
+	err = db.Ping()
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	http.HandleFunc("/current-time", currentTimeHandler)
-
-	fmt.Println("Server is running on port 8080...")
+	// Set up HTTP route with CORS middleware
+	http.HandleFunc("/time", corsMiddleware(getTorontoTime))
+	log.Println("Server starting on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
 
-func currentTimeHandler(w http.ResponseWriter, r *http.Request) {
-	// Get current Toronto time
-	torontoLocation, err := time.LoadLocation("America/Toronto")
+func getTorontoTime(w http.ResponseWriter, r *http.Request) {
+	// Load Toronto's timezone
+	location, err := time.LoadLocation("America/Toronto")
 	if err != nil {
-		http.Error(w, "Unable to load timezone", http.StatusInternalServerError)
-		log.Printf("Error loading timezone: %v", err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	currentTime := time.Now().In(torontoLocation)
+	// Get current time in Toronto
+	torontoTime := time.Now().In(location)
 
-	// Log current time to the database
-	if err := logTimeToDatabase(currentTime); err != nil {
-		http.Error(w, "Unable to log time to database", http.StatusInternalServerError)
-		log.Printf("Error logging time to database: %v", err)
-		return
+	// Log time to database
+	_, err = db.Exec("INSERT INTO time_logs (request_time) VALUES (?)", torontoTime)
+	if err != nil {
+		log.Printf("Error logging to database: %v", err)
 	}
 
-	// Prepare JSON response
-	response := Response{CurrentTime: currentTime.Format("2006-01-02 15:04:05")}
+	// Prepare response
+	response := TimeResponse{
+		CurrentTime: torontoTime.Format(time.RFC3339),
+		Timezone:    location.String(),
+	}
+
+	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
 
-func logTimeToDatabase(currentTime time.Time) error {
-	query := "INSERT INTO time_log (timestamp) VALUES (?)"
-	_, err := db.Exec(query, currentTime)
-	return err
+func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		// Set CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", "*") // Allow all origins
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		// Handle preflight requests
+		if r.Method == http.MethodOptions {
+			return
+		}
+
+		// Call the next handler
+		next(w, r)
+	}
 }
