@@ -3,8 +3,10 @@ package main
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	"os"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
@@ -20,24 +22,47 @@ type TimeResponse struct {
 var db *sql.DB
 
 func main() {
+	// Get database connection details from environment variables
+	dbHost := getEnv("DB_HOST", "localhost")
+	dbUser := getEnv("DB_USER", "root")
+	dbPassword := getEnv("DB_PASSWORD", "admin")
+	dbName := getEnv("DB_NAME", "timedb")
+
+	// Create database connection string
+	dbURI := fmt.Sprintf("%s:%s@tcp(%s:3306)/%s", dbUser, dbPassword, dbHost, dbName)
+
 	// Initialize database connection
 	var err error
-	db, err = sql.Open("mysql", "root:admin@tcp(localhost:3306)/timedb")
+	db, err = sql.Open("mysql", dbURI)
 	if err != nil {
 		log.Fatal(err)
 	}
 	defer db.Close()
 
-	// Test database connection
-	err = db.Ping()
+	// Wait for database to be ready
+	for i := 0; i < 30; i++ {
+		err = db.Ping()
+		if err == nil {
+			break
+		}
+		log.Printf("Waiting for database... %v", err)
+		time.Sleep(time.Second)
+	}
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal("Could not connect to database")
 	}
 
 	// Set up HTTP route with both middlewares
 	http.HandleFunc("/time", errorHandler(corsMiddleware(getTorontoTime)))
 	log.Println("Server starting on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
+}
+
+func getEnv(key, fallback string) string {
+	if value, exists := os.LookupEnv(key); exists {
+		return value
+	}
+	return fallback
 }
 
 func getTorontoTime(w http.ResponseWriter, r *http.Request) {

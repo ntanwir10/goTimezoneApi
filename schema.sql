@@ -1,6 +1,6 @@
 -- create the SQL schema for the database:
 
-CREATE DATABASE timedb;
+CREATE DATABASE IF NOT EXISTS timedb;
 
 USE timedb;
 
