@@ -11,8 +11,10 @@ import (
 )
 
 type TimeResponse struct {
-	CurrentTime string `json:"current_time"`
-	Timezone    string `json:"timezone"`
+	CurrentTime  string `json:"current_time"`  // ISO format (RFC3339)
+	ReadableTime string `json:"readable_time"` // Human readable format
+	ReadableDate string `json:"readable_date"` // Human readable date
+	Timezone     string `json:"timezone"`
 }
 
 var db *sql.DB
@@ -32,8 +34,8 @@ func main() {
 		log.Fatal(err)
 	}
 
-	// Set up HTTP route with CORS middleware
-	http.HandleFunc("/time", corsMiddleware(getTorontoTime))
+	// Set up HTTP route with both middlewares
+	http.HandleFunc("/time", errorHandler(corsMiddleware(getTorontoTime)))
 	log.Println("Server starting on :8080...")
 	log.Fatal(http.ListenAndServe(":8080", nil))
 }
@@ -42,7 +44,8 @@ func getTorontoTime(w http.ResponseWriter, r *http.Request) {
 	// Load Toronto's timezone
 	location, err := time.LoadLocation("America/Toronto")
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		log.Printf("Timezone error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
 		return
 	}
 
@@ -52,18 +55,25 @@ func getTorontoTime(w http.ResponseWriter, r *http.Request) {
 	// Log time to database
 	_, err = db.Exec("INSERT INTO time_logs (request_time) VALUES (?)", torontoTime)
 	if err != nil {
-		log.Printf("Error logging to database: %v", err)
+		log.Printf("Database error: %v", err)
+		// Continue processing but log the error
 	}
 
-	// Prepare response
+	// Prepare response with multiple time formats
 	response := TimeResponse{
-		CurrentTime: torontoTime.Format(time.RFC3339),
-		Timezone:    location.String(),
+		CurrentTime:  torontoTime.Format(time.RFC3339),
+		ReadableTime: torontoTime.Format("3:04 PM"),           // e.g., "2:30 PM"
+		ReadableDate: torontoTime.Format("Monday, January 2"), // e.g., "Monday, March 14"
+		Timezone:     location.String(),
 	}
 
 	// Send JSON response
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		log.Printf("Response encoding error: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
 }
 
 func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
@@ -80,5 +90,18 @@ func corsMiddleware(next http.HandlerFunc) http.HandlerFunc {
 
 		// Call the next handler
 		next(w, r)
+	}
+}
+
+// Add a custom error handler middleware
+func errorHandler(handler http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if err := recover(); err != nil {
+				log.Printf("Panic recovered: %v", err)
+				http.Error(w, "Internal server error", http.StatusInternalServerError)
+			}
+		}()
+		handler(w, r)
 	}
 }
