@@ -1,26 +1,30 @@
+<!-- This html can be used to test the API response -->
+
 <!DOCTYPE html>
 <html>
-<head>
+  <head>
     <title>Test Toronto Time API</title>
-</head>
-<body>
+  </head>
+  <body>
     <h1>Toronto Time</h1>
     <div id="result"></div>
 
     <script>
-        fetch('http://localhost:8080/time')
-            .then(response => response.json())
-            .then(data => {
-                document.getElementById('result').innerHTML = `
+      fetch("http://localhost:8080/time")
+        .then((response) => response.json())
+        .then((data) => {
+          document.getElementById("result").innerHTML = `
                     <p>Date: ${data.readable_date}</p>
                     <p>Time: ${data.readable_time}</p>
                     <p>Timezone: ${data.timezone}</p>
                     <p>Full ISO Time: ${data.current_time}</p>
                 `;
-            })
-            .catch(error => {
-                document.getElementById('result').innerHTML = `Error: ${error.message}`;
-            });
+        })
+        .catch((error) => {
+          document.getElementById(
+            "result"
+          ).innerHTML = `Error: ${error.message}`;
+        });
     </script>
-</body>
-</html> 
+  </body>
+</html>
